@@ -1,0 +1,54 @@
+---
+- name: user management play1 on localhost
+  import_playbook: initial.yml
+  vars:
+     var_directory: "{{ role_path }}/files/iam_reports"
+     var_inputcsvfile: "{{ var_csvfilename_input }}"
+     var_actionfrommainfile: "idavailability"
+     csv_fields: "Requestnumber,UserID,OS,hostname,Action"
+     #var_reponame: "github.ibm.com/apmm-ansible/apm_iam_reports.git"
+     var_reponame: "{{ var_external_repo_name }}"
+
+- name: user management play2 on hosts read from CSV file
+  hosts: "{{ hostvars['localhost']['valid_hostnames_p1'] }}"
+  become: true
+  become_method: sudo
+
+  vars:
+    var_output_txt: ""
+    var_csv_fields: "Requestnumber,UserID,OS,hostname,Action"
+
+  tasks:
+   - name: Get Csv results from previous play
+     set_fact:
+        csvresults_full: "{{ hostvars['localhost']['csvresults'] }}"
+   - name: Filter results with action and hostname
+     set_fact:
+        csvresults: "{{ csvresults_full|selectattr('Action','match','(?i)^[# \t]*idavailability')|selectattr('hostname','equalto',inventory_hostname)|list }}"
+
+   - debug:
+       msg: "csv list in second play after filtering based hostname and Action-------------- {{ csvresults }}"
+
+
+   - name: Call id_availability.yml file with each record from the list
+     include_role:
+       name: user_management_role
+       tasks_from: id_availability.yml
+     vars:
+       list_item: "{{ item }}"
+     with_items: "{{ csvresults }}"
+     when: ansible_os_family in ['RedHat','Suse','Debian']
+   - debug:
+           msg:
+             - "=User who started it: {{ tower_user_name|default('no user') }}"
+             - "=========For Hostname {{ inventory_hostname }}=========\n"
+             - "{{ (csvresults|list|first).keys()|join(',') }}"               
+             - "{{ var_output_txt.split('\n') }}"
+- name: play3 on localhost
+  import_playbook: output_checkin.yml
+  vars:
+      var_request_filepath: "{{ role_path }}/files/iam_reports"
+      var_request_file_name: "{{ var_csvfilename_input }}"
+      var_csv_fields: "Requestnumber,UserID,OS,hostname,Action"
+      #var_reponame: "github.ibm.com/apmm-ansible/apm_iam_reports.git"
+      var_reponame: "{{ var_external_repo_name }}"
